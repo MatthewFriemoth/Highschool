@@ -1,0 +1,356 @@
+--2017 Matthew Friemoth
+local UIS = game:GetService("UserInputService")
+local runService = game:GetService("RunService")
+local tweenService = game:GetService("TweenService")
+
+local player = game.Players.LocalPlayer
+local camera = workspace.CurrentCamera
+local mouse = player:GetMouse()
+
+-----------------------------------------------
+
+local tool = script.Parent
+
+
+local settings = require(game.ReplicatedStorage:WaitForChild("GunSettings"))[tool.Name]
+local replicateModule = require(tool:WaitForChild("ReplicateModule"))
+
+-----------------------------------------------
+
+
+local handle = tool:WaitForChild("Handle")
+local barrel = tool:WaitForChild("Barrel")
+local magazine = tool:WaitForChild("Magazine")
+
+local reloadSound = handle:WaitForChild("ReloadSound")
+local fireSound = barrel:WaitForChild("FireSound")
+
+local holdAnimation = tool:WaitForChild("HoldAnimation")
+local holdCrouchAnimation = tool:WaitForChild("HoldCrouchAnimation")
+
+local cursor = tool:WaitForChild(settings.Cursor)
+local crosshairs = nil;
+
+local animations = {}
+
+local clicking 	= 	false
+local shooting 	= 	false
+local reloading = 	false
+
+-----------------------------------------------
+
+repeat wait() until player.Character
+
+local character = player.Character
+local humanoid = character:WaitForChild("Humanoid")
+local THINGS = character:WaitForChild("THINGS")
+	
+local head = character:WaitForChild("Head")
+
+local defaultWaistC0 = character:WaitForChild("UpperTorso").Waist.C0
+local defaultWaistC1 = character:WaitForChild("UpperTorso").Waist.C1
+
+for _,v in pairs(workspace:GetDescendants())do
+	if v:IsA("BasePart") then
+		v.Massless = true
+		if v.Name ~= "Leaf" then
+			v.CastShadow = false;
+		end
+	end
+end
+
+-----------------------------------------------
+
+local connections = {}
+
+tool.Equipped:connect(function()
+	
+	local function createCrosshairs()
+		
+		crosshairs = cursor:Clone();
+		crosshairs.Parent = player.PlayerGui
+		
+	end
+	
+	local function isAlive() 
+		
+		return humanoid.Health > 0
+		
+	end
+	
+	local function updateHUD()
+		
+		--gunHUD.Frame.Title.Text = tool.Name
+		--gunHUD.Frame.Ammo.Text = magazine.Value.."/"..settings.MagazineSize
+		
+	end
+
+	local function Reload()
+		
+		reloading = true
+		
+		reloadSound:Play()
+		updateHUD()
+		
+		if settings.ReloadTime == "SoundBased" then
+			
+			reloadSound.Ended:Wait()
+			
+		else
+			
+			wait(settings.ReloadTime)
+			
+		end
+		
+		if reloading then
+			
+			magazine.Value = settings.MagazineSize
+			
+		end
+		updateHUD()
+		
+		reloading = false
+		
+	end
+
+	local function Fire()
+		
+		local direction = 	CFrame.new(Vector3.new(),(mouse.Hit.p - head.Position)) * 
+						  	CFrame.Angles(0,(math.random() - 0.5) * settings.Spread, 0) * 
+							CFrame.Angles((math.random() - 0.5) * settings.Spread, 0, 0) -- Range between -0.5, and 0.5, than multiply by spread, so no need to multiply by half.
+							+ head.Position
+		
+		local ray = Ray.new(direction.p, direction.lookVector * settings.Range)
+		local hit, pos = workspace:FindPartOnRay(ray,character)
+		
+		if hit then
+			
+			local player = game.Players:GetPlayerFromCharacter(hit.Parent) or game.Players:GetPlayerFromCharacter(hit.Parent.Parent)
+			
+			if player then
+				
+				game.ReplicatedStorage.GunRemote:FireServer(hit)
+				
+			end
+			
+		end
+		
+		tool.ReplicateFire:FireServer(barrel.Position,pos)
+		--replicatemodule.CreatePart(barrel.Position,pos)
+		
+	end
+
+	local function Shoot()
+		
+		if clicking and not shooting and not reloading and magazine.Value > 0 and isAlive() then
+			
+			shooting = true
+			
+			if settings.FireMode == "Shotgun" then
+				
+				for i = 1,settings.ShotgunPellets do
+					
+					Fire()
+					
+				end
+				
+			else
+				
+				Fire()
+				
+			end
+			
+			for _, effect in pairs(barrel:GetChildren())do
+				
+				if effect.ClassName == "ParticleEmitter" then
+					
+					effect:Emit()
+					
+				end
+				
+			end
+			
+			camera.CFrame = camera.CFrame * CFrame.Angles(settings.CameraRecoil, 0, 0)
+
+			----module.GUI.Crosshairs.PlayRescale("Fire")
+			
+			magazine.Value = magazine.Value - 1
+			
+			updateHUD()
+			
+			fireSound:Play()
+	
+			wait(60/settings.FireRate)
+			
+			shooting = false
+			
+			if settings.FireMode == "Auto" then
+				
+				Shoot()
+			
+			end
+			
+		else
+			
+			--if ----module.Actions.IsDoing("Focusing") then
+				
+				----module.GUI.Crosshairs.PlayRescale("Focusing")
+				
+		--	else
+				
+				----module.GUI.Crosshairs.PlayRescale("Norm")
+				
+			--end
+		
+		end
+		
+	end
+	
+	-------------------------
+	
+	connections.FocusChanged = THINGS.IsFocusing.Changed:Connect(function(property)
+		if property == "Value" then
+			local val = THINGS.IsFocusing[property]
+			if val == true then
+				--focus();
+			else
+				--unfocus();
+			end
+		end
+	end)
+
+	connections.Mouse1Down = mouse.Button1Down:connect(function()
+		
+		clicking = true
+		
+		Shoot()
+		
+	end)
+	
+	connections.Mouse1Up = mouse.Button1Up:connect(function()
+		
+		clicking = false
+
+		--if --module.Actions.IsDoing("Focusing") then
+				
+			--module.GUI.Crosshairs.PlayRescale("Focusing")
+				
+		--else
+			
+			--module.GUI.Crosshairs.PlayRescale("Norm")
+				
+		--end
+		
+	end)
+	
+	connections.KeyPress = UIS.InputBegan:connect(function(input, gameProcessed)
+		
+		if not gameProcessed then
+			
+			if input.KeyCode == Enum.KeyCode.R then
+				
+				if not reloading and isAlive() then
+					
+					Reload()
+					
+				end
+				
+			end
+			
+		end
+		
+	end)
+	
+	runService:BindToRenderStep("RenderStep_Gun", 5, function()
+		
+		if crosshairs then
+			
+			crosshairs.Frame.Position = UDim2.new(0,mouse.X,0,mouse.Y)
+			
+		end
+		--[[
+		if crosshairs then
+			
+			if character then
+				
+				local upperTorso = character:FindFirstChild("UpperTorso")
+				local lowerTorso = character:FindFirstChild("LowerTorso")
+				
+				if upperTorso and lowerTorso then
+					
+					local waist = upperTorso:FindFirstChild("Waist")
+					
+					if waist then
+						
+						if (head.Position - camera.CFrame.p).Magnitude < 2 then -- If first person
+						
+							waist.C0 = (lowerTorso.CFrame):inverse() * (camera.CFrame) * CFrame.new(0,-1.4,0)
+							waist.C1 = CFrame.new(0,0,0)
+							
+						else
+							
+							waist.C0 = defaultWaistC0
+							waist.C1 = defaultWaistC1
+							
+						end
+						
+					end
+				
+				end
+				
+			end
+			
+		end
+		--]]
+	end)
+	
+	-------------------------
+	
+	UIS.MouseIconEnabled = false
+	--gunHUD.Frame.Visible = true
+	 
+	--module.GUI.AddCrosshairs(cursor)
+	
+	--module.GUI.Crosshairs.AddRescale("Norm",UDim2.new(0,20,0,20),0.2)
+	--module.GUI.Crosshairs.AddRescale("Fire",UDim2.new(0,30,0,30),0.1)
+	--module.GUI.Crosshairs.AddRescale("Focusing",UDim2.new(0,10,0,10),0.2)
+	
+	animations.Hold = humanoid:LoadAnimation(holdAnimation)
+	animations.Hold:Play()
+	
+	createCrosshairs()
+	
+	updateHUD()
+
+	tool.Unequipped:Wait()		-- UNEQUIPPED
+	
+	if crosshairs then
+		crosshairs:Destroy();
+	end
+	
+	--gunHUD.Frame.Visible = false
+	
+	shooting = false
+	reloading = false
+	UIS.MouseIconEnabled = true
+	
+	runService:UnbindFromRenderStep("RenderStep_Gun")
+	
+	for _,connection in pairs(connections)do
+	
+		connection:disconnect()
+		
+		connection = nil
+	
+	end
+	
+	for _,anim in pairs(animations)do
+	
+		anim:Stop()
+		
+		anim = nil
+	
+	end
+	
+
+end)
